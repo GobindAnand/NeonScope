@@ -1,0 +1,19 @@
+# Build output
+/build/
+/NeonScope_artefacts/
+/Release/
+/Debug/
+/x64/
+/*.vst3
+
+# IDE
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.user
+
+# CMake cache
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
