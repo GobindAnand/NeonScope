@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include <cmath>
+
 namespace
 {
     const juce::Colour backgroundColour (0xff050505);
@@ -8,72 +10,211 @@ namespace
     const juce::Colour accentTertiary  = juce::Colour::fromRGB (0, 153, 255);
 
     constexpr float meterSectionHeight   = 70.0f;
-    constexpr float controlSectionHeight = 200.0f;
+    constexpr float controlSectionHeight = 270.0f;
 }
 
+NeonLookAndFeel::NeonLookAndFeel()
+{
+    setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+    setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    setColour (juce::ComboBox::textColourId, juce::Colours::white);
+    setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+    setColour (juce::PopupMenu::backgroundColourId, backgroundColour.darker());
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, neonMagenta.withAlpha (0.25f));
+    setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+}
 
+void NeonLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
+                                        float sliderPos, float minSliderPos, float maxSliderPos,
+                                        const juce::Slider::SliderStyle style, juce::Slider& slider)
+{
+    juce::ignoreUnused (minSliderPos, maxSliderPos, slider);
 
+    if (! slider.isHorizontal())
+    {
+        juce::LookAndFeel_V4::drawLinearSlider (g, x, y, width, height,
+                                                sliderPos, minSliderPos, maxSliderPos, style, slider);
+        return;
+    }
 
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (2.0f);
+    auto track = bounds.withHeight (4.0f).withCentre ({ bounds.getCentreX(), bounds.getCentreY() });
 
+    g.setColour (controlSurface);
+    g.fillRoundedRectangle (track, 2.0f);
 
+    const auto thumbX = juce::jlimit (track.getX(), track.getRight(), sliderPos);
+    auto fill = track.withWidth (thumbX - track.getX());
+
+    g.setColour (neonCyan);
+    g.fillRoundedRectangle (fill, 2.0f);
+
+    g.setColour (outlineColour);
+    g.drawRoundedRectangle (track, 2.0f, 1.0f);
+
+    auto thumb = juce::Rectangle<float> (10.0f, 18.0f).withCentre ({ thumbX, track.getCentreY() });
+    g.setColour (neonMagenta);
+    g.fillRoundedRectangle (thumb, 4.0f);
+}
+
+void NeonLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                                        float sliderPosProportional,
+                                        float rotaryStartAngle, float rotaryEndAngle,
+                                        juce::Slider& slider)
+{
+    juce::ignoreUnused (slider);
+
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (6.0f);
+    const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
+    const auto centre = bounds.getCentre();
+
+    g.setColour (controlSurface);
+    g.fillEllipse (bounds);
+
+    g.setColour (outlineColour);
+    g.drawEllipse (bounds, 1.0f);
+
+    const auto angle = rotaryStartAngle + (rotaryEndAngle - rotaryStartAngle) * sliderPosProportional;
+
+    juce::Path arc;
+    arc.addArc (bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                rotaryStartAngle, angle, true);
+    g.setColour (neonCyan);
+    g.strokePath (arc, juce::PathStrokeType (2.5f));
+
+    const auto indicatorRadius = radius - 5.0f;
+    juce::Point<float> indicator (centre.x + indicatorRadius * std::cos (angle),
+                                  centre.y + indicatorRadius * std::sin (angle));
+
+    g.setColour (neonMagenta);
+    g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (indicator));
+}
+
+void NeonLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool /*isButtonDown*/,
+                                    int buttonX, int buttonY, int buttonW, int buttonH,
+                                    juce::ComboBox& box)
+{
+    auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height);
+
+    g.setColour (controlSurface);
+    g.fillRoundedRectangle (bounds, 4.0f);
+
+    g.setColour (outlineColour);
+    g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
+
+    juce::Rectangle<float> arrowArea ((float) buttonX, (float) buttonY, (float) buttonW, (float) buttonH);
+    auto center = arrowArea.getCentre();
+
+    juce::Path arrow;
+    arrow.addTriangle (center.x - 5.0f, center.y - 1.5f,
+                       center.x + 5.0f, center.y - 1.5f,
+                       center.x, center.y + 3.5f);
+
+    g.setColour (neonCyan);
+    g.fillPath (arrow);
+
+    if (box.hasKeyboardFocus (false))
+    {
+        g.setColour (neonMagenta.withAlpha (0.4f));
+        g.drawRoundedRectangle (bounds, 4.0f, 1.5f);
+    }
+}
 NeonScopeAudioProcessorEditor::NeonScopeAudioProcessorEditor (NeonScopeAudioProcessor& p)
     : juce::AudioProcessorEditor (&p),
       processor (p)
 {
-    auto configureSlider = [] (juce::Slider& s, const juce::String& name)
+    setLookAndFeel (&neonLookAndFeel);
+
+    auto configureLinearSlider = [] (juce::Slider& s, const juce::String& name)
     {
         s.setName (name);
         s.setSliderStyle (juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 80, 20);
+        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 88, 20);
         s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
         s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        s.setColour (juce::Slider::thumbColourId, accentPrimary);
-        s.setColour (juce::Slider::trackColourId, accentTertiary.withAlpha (0.6f));
-        s.setColour (juce::Slider::backgroundColourId, juce::Colours::white.withAlpha (0.07f));
         s.setNumDecimalPlacesToDisplay (2);
     };
 
-    auto configurePercentageDisplay = [] (juce::Slider& slider)
+    auto configureRotarySlider = [] (juce::Slider& s, const juce::String& name)
+    {
+        s.setName (name);
+        s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 18);
+        s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+        s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        s.setNumDecimalPlacesToDisplay (2);
+    };
+
+    auto applyUnitTextFormatting = [] (juce::Slider& slider, double multiplier, int decimals)
     {
         const auto suffix = slider.getTextValueSuffix();
         const auto suffixToken = suffix.trim();
 
-        slider.textFromValueFunction = [suffix] (double value)
+        slider.textFromValueFunction = [suffix, multiplier, decimals] (double value)
         {
-            return juce::String (value * 100.0, 2) + suffix;
+            return juce::String (value * multiplier, decimals) + suffix;
         };
 
-        slider.valueFromTextFunction = [suffixToken] (const juce::String& text)
+        slider.valueFromTextFunction = [suffixToken, multiplier] (const juce::String& text)
         {
-            auto numericText = suffixToken.isEmpty()
-                                   ? text
-                                   : text.upToFirstOccurrenceOf (suffixToken, false, false);
+            const auto numericText = suffixToken.isEmpty()
+                                         ? text
+                                         : text.upToFirstOccurrenceOf (suffixToken, false, false);
 
-            return numericText.trim().getDoubleValue() / 100.0;
+            return numericText.trim().getDoubleValue() / multiplier;
         };
     };
 
-    configureSlider (sensitivitySlider, "Sensitivity");
-    configureSlider (smoothingSlider, "Smoothing");
-    configureSlider (cutoffSlider, "Cutoff");
-    configureSlider (resonanceSlider, "Resonance");
-    configureSlider (driveSlider, "Drive");
-    configureSlider (widthSlider, "Stereo Width");
-    configureSlider (mixSlider, "Mix");
-    configureSlider (outputTrimSlider, "Output Trim");
+    auto formatWithMaxOneDecimal = [] (double value)
+    {
+        auto text = juce::String (value, 1);
+        text = text.trimCharactersAtEnd ("0");
+        text = text.trimCharactersAtEnd (".");
+        return text.isEmpty() ? juce::String ("0") : text;
+    };
+
+    configureLinearSlider (sensitivitySlider, "Sensitivity");
+    configureLinearSlider (smoothingSlider, "Smoothing");
+    configureLinearSlider (cutoffSlider, "Cutoff");
+    configureRotarySlider (resonanceSlider, "Resonance");
+    configureRotarySlider (driveSlider, "Drive");
+    configureLinearSlider (widthSlider, "Stereo Width");
+    configureRotarySlider (mixSlider, "Mix");
+    configureRotarySlider (outputTrimSlider, "Output Trim");
 
     sensitivitySlider.setTextValueSuffix ("x");
     smoothingSlider.setTextValueSuffix (" %");
-    cutoffSlider.setTextValueSuffix (" Hz");
     resonanceSlider.setTextValueSuffix (" Q");
     driveSlider.setTextValueSuffix ("x");
     widthSlider.setTextValueSuffix (" %");
     mixSlider.setTextValueSuffix (" %");
     outputTrimSlider.setTextValueSuffix (" dB");
 
-    configurePercentageDisplay (smoothingSlider);
-    configurePercentageDisplay (widthSlider);
-    configurePercentageDisplay (mixSlider);
+    applyUnitTextFormatting (sensitivitySlider, 1.0, 2);
+    applyUnitTextFormatting (smoothingSlider, 100.0, 1);
+    applyUnitTextFormatting (widthSlider, 100.0, 1);
+    applyUnitTextFormatting (mixSlider, 100.0, 1);
+    applyUnitTextFormatting (resonanceSlider, 1.0, 2);
+    applyUnitTextFormatting (driveSlider, 1.0, 2);
+    applyUnitTextFormatting (outputTrimSlider, 1.0, 1);
+
+    cutoffSlider.textFromValueFunction = [formatWithMaxOneDecimal] (double value)
+    {
+        if (value >= 1000.0)
+            return formatWithMaxOneDecimal (value / 1000.0) + " kHz";
+
+        return formatWithMaxOneDecimal (value) + " Hz";
+    };
+
+    cutoffSlider.valueFromTextFunction = [] (const juce::String& text)
+    {
+        const auto trimmed = text.trim();
+        const auto value = trimmed.getDoubleValue();
+        const auto lowered = trimmed.toLowerCase();
+
+        return lowered.contains ("khz") ? value * 1000.0 : value;
+    };
 
     auto configureCombo = [] (juce::ComboBox& box)
     {
@@ -158,6 +299,11 @@ NeonScopeAudioProcessorEditor::NeonScopeAudioProcessorEditor (NeonScopeAudioProc
     updateVisualState();
 }
 
+NeonScopeAudioProcessorEditor::~NeonScopeAudioProcessorEditor()
+{
+    setLookAndFeel (nullptr);
+}
+
 void NeonScopeAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (backgroundColour);
@@ -232,49 +378,58 @@ void NeonScopeAudioProcessorEditor::resized()
     auto meterArea = bounds.removeFromBottom (static_cast<int> (meterSectionHeight));
     auto controlArea = bounds.removeFromBottom (static_cast<int> (controlSectionHeight)).reduced (30, 12);
 
-    const int rowHeight = 34;
-    const int spacing = 8;
-    auto takeRow = [&controlArea, rowHeight, spacing]()
-    {
-        auto row = controlArea.removeFromTop (rowHeight);
-        controlArea.removeFromTop (spacing);
-        return row;
-    };
+    constexpr int rowHeight = 30;
+    constexpr int rowSpacing = 6;
+    constexpr int rotaryAreaHeight = 132;
+    constexpr int rotarySpacing = 10;
 
-    auto row1 = takeRow();
-    auto row2 = takeRow();
-    auto row3 = takeRow();
-    auto row4 = takeRow();
-    auto row5 = takeRow();
+    auto rotaryArea = controlArea.removeFromBottom (rotaryAreaHeight);
+    controlArea.removeFromBottom (rotarySpacing);
+
+    auto row1 = controlArea.removeFromTop (rowHeight);
+    controlArea.removeFromTop (rowSpacing);
+    auto row2 = controlArea.removeFromTop (rowHeight);
+    controlArea.removeFromTop (rowSpacing);
+    auto row3 = controlArea.removeFromTop (rowHeight);
 
     auto modeArea = row1.removeFromLeft (row1.proportionOfWidth (0.65f));
     modeBox.setBounds (modeArea.reduced (4, 0));
     oversamplingBox.setBounds (row1.reduced (4, 0));
 
-    auto filterTypeArea = row2.removeFromLeft (row2.proportionOfWidth (0.33f));
+    auto filterTypeArea = row2.removeFromLeft (row2.proportionOfWidth (0.3f));
     filterTypeBox.setBounds (filterTypeArea.reduced (4, 0));
-    cutoffSlider.setBounds (row2.reduced (4, 0));
+    cutoffSlider.setBounds (row2.reduced (4, 4));
 
-    const int thirdWidth = row3.getWidth() / 3;
-    auto resonanceArea = row3.removeFromLeft (thirdWidth);
-    auto driveArea = row3.removeFromLeft (thirdWidth);
-    auto satArea = row3;
+    auto row3Bounds = row3;
+    const int totalRow3Width = row3Bounds.getWidth();
+    const int satWidth = static_cast<int> (totalRow3Width * 0.22f);
+    const int widthWidth = static_cast<int> (totalRow3Width * 0.4f);
+    const int remaining = juce::jmax (0, totalRow3Width - satWidth - widthWidth);
+    const int smallWidth = remaining / 2;
 
-    resonanceSlider.setBounds (resonanceArea.reduced (4, 0));
-    driveSlider.setBounds (driveArea.reduced (4, 0));
+    auto satArea = row3Bounds.removeFromLeft (satWidth);
+    auto widthArea = row3Bounds.removeFromLeft (widthWidth);
+    auto sensitivityArea = row3Bounds.removeFromLeft (smallWidth);
+    auto smoothingArea = row3Bounds;
+
     satModeBox.setBounds (satArea.reduced (4, 0));
+    widthSlider.setBounds (widthArea.reduced (4, 4));
+    sensitivitySlider.setBounds (sensitivityArea.reduced (4, 4));
+    smoothingSlider.setBounds (smoothingArea.reduced (4, 4));
 
-    auto widthArea = row4.removeFromLeft (row4.getWidth() / 3);
-    auto mixArea = row4.removeFromLeft (row4.getWidth() / 2);
-    auto trimArea = row4;
+    auto rotaryTop = rotaryArea.removeFromTop (rotaryArea.getHeight() / 2);
+    auto rotaryBottom = rotaryArea;
 
-    widthSlider.setBounds (widthArea.reduced (4, 0));
-    mixSlider.setBounds (mixArea.reduced (4, 0));
-    outputTrimSlider.setBounds (trimArea.reduced (4, 0));
+    const int rotaryPadding = 10;
+    auto resonanceArea = rotaryTop.removeFromLeft (rotaryTop.getWidth() / 2).reduced (rotaryPadding);
+    auto driveArea = rotaryTop.reduced (rotaryPadding);
+    auto mixArea = rotaryBottom.removeFromLeft (rotaryBottom.getWidth() / 2).reduced (rotaryPadding);
+    auto trimArea = rotaryBottom.reduced (rotaryPadding);
 
-    auto sensitivityArea = row5.removeFromLeft (row5.proportionOfWidth (0.5f));
-    sensitivitySlider.setBounds (sensitivityArea.reduced (4, 0));
-    smoothingSlider.setBounds (row5.reduced (4, 0));
+    resonanceSlider.setBounds (resonanceArea);
+    driveSlider.setBounds (driveArea);
+    mixSlider.setBounds (mixArea);
+    outputTrimSlider.setBounds (trimArea);
 
     juce::ignoreUnused (meterArea);
 }
