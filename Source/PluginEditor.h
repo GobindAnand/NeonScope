@@ -3,33 +3,52 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-class NeonDialLook : public juce::LookAndFeel_V4
+// ─── Design Tokens ──────────────────────────────────────────────────────────
+namespace Theme
+{
+    inline const juce::Colour background   { 0xff0E0F12 };
+    inline const juce::Colour panel        { 0xff171A20 };
+    inline const juce::Colour panelHover   { 0xff1D2028 };
+    inline const juce::Colour border       { 0xff2A2F3A };
+    inline const juce::Colour borderLight  { 0xff3A4050 };
+    inline const juce::Colour textPrimary  { 0xffE6EDF3 };
+    inline const juce::Colour textSecondary{ 0xff8A93A2 };
+    inline const juce::Colour accent       { 0xff00E0B8 };
+    inline const juce::Colour accentDim    { 0xff00A888 };
+    inline const juce::Colour danger       { 0xffFF4D4D };
+    inline const juce::Colour knobFace     { 0xff1C1F28 };
+
+    constexpr float titleSize   = 20.0f;
+    constexpr float sectionSize = 13.0f;
+    constexpr float labelSize   = 11.0f;
+    constexpr float valueSize   = 11.0f;
+    constexpr float margin      = 10.0f;
+    constexpr float cornerRadius = 6.0f;
+}
+
+// ─── Look and Feel ──────────────────────────────────────────────────────────
+class ScopeLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    NeonDialLook();
+    ScopeLookAndFeel();
 
-    void drawLinearSlider (juce::Graphics&, int x, int y, int width, int height,
-                           float sliderPos, float minSliderPos, float maxSliderPos,
-                           const juce::Slider::SliderStyle, juce::Slider&) override;
-
-    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
-                           float sliderPosProportional,
-                           float rotaryStartAngle, float rotaryEndAngle,
+    void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h,
+                           float pos, float startAngle, float endAngle,
                            juce::Slider&) override;
 
-    void drawComboBox (juce::Graphics&, int width, int height, bool isButtonDown,
-                       int buttonX, int buttonY, int buttonW, int buttonH,
+    void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h,
+                           float pos, float min, float max,
+                           const juce::Slider::SliderStyle, juce::Slider&) override;
+
+    void drawComboBox (juce::Graphics&, int w, int h, bool isDown,
+                       int bx, int by, int bw, int bh,
                        juce::ComboBox&) override;
 
-    void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
-
-private:
-    const juce::Colour panelBase   { juce::Colour::fromRGB (15, 16, 23) };
-    const juce::Colour dialBase    { juce::Colour::fromRGB (22, 24, 34) };
-    const juce::Colour neonCyan    { juce::Colour::fromRGB (0, 255, 191) };
-    const juce::Colour neonMagenta { juce::Colour::fromRGB (255, 96, 182) };
+    void drawToggleButton (juce::Graphics&, juce::ToggleButton&,
+                           bool highlighted, bool down) override;
 };
 
+// ─── Editor ─────────────────────────────────────────────────────────────────
 class NeonScopeAudioProcessorEditor : public juce::AudioProcessorEditor,
                                       private juce::Timer
 {
@@ -41,37 +60,37 @@ public:
     void resized() override;
 
 private:
+    // ── Timer / state ───────────────────────────────────────────────────
     void timerCallback() override;
     void updateVisualState();
-    void configureNeonKnob (juce::Slider& slider, juce::Label& label, const juce::String& name);
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+    void configureKnob (juce::Slider&, juce::Label&, const juce::String& name);
     void refreshKnobLabels();
+    void drawPanel (juce::Graphics&, juce::Rectangle<float> area, const juce::String& title);
+    void drawSpectrum (juce::Graphics&);
+    void drawMeters (juce::Graphics&, juce::Rectangle<float> area);
+    void drawSingleMeter (juce::Graphics&, juce::Rectangle<float> area,
+                          float rmsDb, float peakDb, float holdNorm,
+                          const juce::String& label);
+    void drawCorrelation (juce::Graphics&, juce::Rectangle<float> area);
 
+    // ── Core ────────────────────────────────────────────────────────────
     NeonScopeAudioProcessor& processor;
-    NeonDialLook neonDialLook;
+    ScopeLookAndFeel scopeLnf;
 
-    juce::ComboBox modeBox;
-    juce::ComboBox filterTypeBox;
-    juce::ComboBox satModeBox;
-    juce::ComboBox oversamplingBox;
-    juce::ComboBox monitorModeBox;
-    juce::Slider cutoffSlider;
-    juce::Slider resonanceSlider;
-    juce::Slider driveSlider;
-    juce::Slider mixSlider;
-    juce::Slider outputSlider;
-    juce::Slider sensitivitySlider;
+    // ── Controls ────────────────────────────────────────────────────────
+    juce::ComboBox modeBox, filterTypeBox, satModeBox, oversamplingBox, monitorModeBox;
+    juce::Slider cutoffSlider, resonanceSlider, driveSlider;
+    juce::Slider mixSlider, outputSlider, sensitivitySlider;
     juce::ToggleButton autoGainButton { "Auto Gain" };
-    juce::ToggleButton limiterButton { "Limiter" };
+    juce::ToggleButton limiterButton  { "Limiter" };
     juce::ToggleButton bandListenButton { "Band Listen" };
-    juce::Label cutoffLabel;
-    juce::Label resonanceLabel;
-    juce::Label driveLabel;
-    juce::Label mixLabel;
-    juce::Label outputLabel;
-    juce::Label sensitivityLabel;
-    juce::Label autoGainValueLabel;
-    juce::Label monitorModeLabel;
+    juce::Label cutoffLabel, resonanceLabel, driveLabel;
+    juce::Label mixLabel, outputLabel, sensitivityLabel;
+    juce::Label autoGainValueLabel, monitorModeLabel;
 
+    // ── Attachments ─────────────────────────────────────────────────────
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> filterTypeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> satModeAttachment;
@@ -87,28 +106,20 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> limiterAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bandListenAttachment;
 
+    // ── Visual state ────────────────────────────────────────────────────
     std::array<float, NeonScopeAudioProcessor::numBands> bandCache {};
-    float leftLevel = 0.0f;
-    float rightLevel = 0.0f;
-    float leftPeakDb = -100.0f;
-    float rightPeakDb = -100.0f;
-    float leftRmsDb = -100.0f;
-    float rightRmsDb = -100.0f;
-    float correlationValue = 0.0f;
-    float widthValue = 0.0f;
-    float autoGainDb = 0.0f;
-    float limiterReduction = 0.0f;
-    float globalRmsPulse = 0.0f;
-    float limiterFlash = 0.0f;
-    float leftPeakHold = 0.0f;
-    float rightPeakHold = 0.0f;
-    int leftPeakHoldTimer = 0;
-    int rightPeakHoldTimer = 0;
-    juce::Rectangle<float> titleBounds;
-    juce::Rectangle<float> spectrumBounds;
-    juce::Rectangle<float> distortionBounds;
-    juce::Rectangle<float> settingsBounds;
-    juce::Rectangle<float> metersBounds;
+    float leftLevel = 0.0f, rightLevel = 0.0f;
+    float leftPeakDb = -100.0f, rightPeakDb = -100.0f;
+    float leftRmsDb = -100.0f, rightRmsDb = -100.0f;
+    float correlationValue = 0.0f, widthValue = 0.0f;
+    float autoGainDb = 0.0f, limiterReduction = 0.0f;
+    float globalRmsPulse = 0.0f, limiterFlash = 0.0f;
+    float leftPeakHold = 0.0f, rightPeakHold = 0.0f;
+    int leftPeakHoldTimer = 0, rightPeakHoldTimer = 0;
+
+    // ── Layout rects ────────────────────────────────────────────────────
+    juce::Rectangle<float> titleBounds, spectrumBounds;
+    juce::Rectangle<float> distortionBounds, settingsBounds, metersBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeonScopeAudioProcessorEditor)
 };

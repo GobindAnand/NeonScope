@@ -4,11 +4,6 @@
 
 namespace
 {
-    const juce::Colour backgroundColour (0xff1a1a1a);
-    const juce::Colour accentPrimary   = juce::Colour::fromRGB (80, 200, 255);
-    const juce::Colour accentSecondary = juce::Colour::fromRGB (100, 180, 255);
-    const juce::Colour accentTertiary  = juce::Colour::fromRGB (120, 160, 255);
-
     constexpr float meterDbFloor   = -60.0f;
     constexpr float meterDbCeiling = 0.0f;
     constexpr float peakDbCeiling  = 6.0f;
@@ -20,20 +15,9 @@ namespace
         return juce::String (v, 0) + " Hz";
     }
 
-    static juce::String formatQ (float v)
-    {
-        return juce::String (v, 2) + " Q";
-    }
-
-    static juce::String formatPercent (float v)
-    {
-        return juce::String (v * 100.0f, 1) + " %";
-    }
-
-    static juce::String formatDrive (float v)
-    {
-        return juce::String (v, 1) + "x";
-    }
+    static juce::String formatQ (float v)       { return juce::String (v, 2) + " Q"; }
+    static juce::String formatPercent (float v)  { return juce::String (v * 100.0f, 1) + "%"; }
+    static juce::String formatDrive (float v)    { return juce::String (v, 1) + "x"; }
 
     static juce::String formatDb (float v)
     {
@@ -43,252 +27,207 @@ namespace
 
     static juce::String formatSensitivity (float v)
     {
-        const float dbValue = juce::Decibels::gainToDecibels (v, -60.0f);
-        return formatDb (dbValue);
+        return formatDb (juce::Decibels::gainToDecibels (v, -60.0f));
+    }
+
+    static float dbToNorm (float db, float minDb, float maxDb)
+    {
+        return juce::jlimit (0.0f, 1.0f, juce::jmap (db, minDb, maxDb, 0.0f, 1.0f));
     }
 }
 
-NeonDialLook::NeonDialLook()
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ScopeLookAndFeel
+// ═══════════════════════════════════════════════════════════════════════════════
+
+ScopeLookAndFeel::ScopeLookAndFeel()
 {
-    setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+    setColour (juce::Slider::textBoxTextColourId, Theme::textPrimary);
     setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour (juce::ComboBox::textColourId, juce::Colours::white);
+    setColour (juce::ComboBox::textColourId, Theme::textPrimary);
     setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
-    setColour (juce::PopupMenu::backgroundColourId, panelBase.darker());
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, neonMagenta.withAlpha (0.25f));
-    setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    setColour (juce::PopupMenu::backgroundColourId, Theme::panel);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, Theme::accent.withAlpha (0.15f));
+    setColour (juce::PopupMenu::highlightedTextColourId, Theme::textPrimary);
+    setColour (juce::PopupMenu::textColourId, Theme::textSecondary);
 }
 
-void NeonDialLook::drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
-                                     float sliderPos, float minSliderPos, float maxSliderPos,
-                                     const juce::Slider::SliderStyle style, juce::Slider& slider)
+void ScopeLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h,
+                                          float pos, float startAngle, float endAngle,
+                                          juce::Slider& slider)
 {
-    juce::ignoreUnused (minSliderPos, maxSliderPos, style);
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (3.0f);
+    const auto side = juce::jmin (bounds.getWidth(), bounds.getHeight());
+    bounds = bounds.withSizeKeepingCentre (side, side);
 
+    const auto centre = bounds.getCentre();
+    const auto radius = side * 0.5f;
+    const bool hover = slider.isMouseOverOrDragging();
+
+    // Face
+    g.setColour (Theme::knobFace);
+    g.fillEllipse (bounds);
+
+    // Outer border
+    g.setColour (hover ? Theme::borderLight : Theme::border);
+    g.drawEllipse (bounds, 1.2f);
+
+    // Track arc (background)
+    const auto arcRadius = radius - 5.0f;
+    juce::Path bgArc;
+    bgArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius,
+                         0.0f, startAngle, endAngle, true);
+    g.setColour (Theme::border);
+    g.strokePath (bgArc, juce::PathStrokeType (2.5f));
+
+    // Value arc (accent)
+    const auto angle = startAngle + (endAngle - startAngle) * pos;
+    if (pos > 0.001f)
+    {
+        juce::Path valArc;
+        valArc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius,
+                              0.0f, startAngle, angle, true);
+        g.setColour (hover ? Theme::accent : Theme::accentDim);
+        g.strokePath (valArc, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+    }
+
+    // Indicator line
+    const auto lineLen = radius - 8.0f;
+    const auto lineStart = 0.35f * lineLen;
+    const juce::Point<float> p1 {
+        centre.x + std::cos (angle) * lineStart,
+        centre.y + std::sin (angle) * lineStart
+    };
+    const juce::Point<float> p2 {
+        centre.x + std::cos (angle) * lineLen,
+        centre.y + std::sin (angle) * lineLen
+    };
+    g.setColour (Theme::textPrimary.withAlpha (hover ? 0.95f : 0.8f));
+    g.drawLine (p1.x, p1.y, p2.x, p2.y, 1.6f);
+}
+
+void ScopeLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h,
+                                          float sliderPos, float /*min*/, float /*max*/,
+                                          const juce::Slider::SliderStyle style, juce::Slider& slider)
+{
     if (! slider.isHorizontal())
     {
-        juce::LookAndFeel_V4::drawLinearSlider (g, x, y, width, height,
-                                                sliderPos, minSliderPos, maxSliderPos, style, slider);
+        juce::LookAndFeel_V4::drawLinearSlider (g, x, y, w, h, sliderPos, 0, 0, style, slider);
         return;
     }
 
-    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (4.0f);
-    auto track = bounds.withHeight (6.0f).withCentre ({ bounds.getCentreX(), bounds.getCentreY() });
+    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (4.0f);
+    auto track = bounds.withHeight (4.0f).withCentre ({ bounds.getCentreX(), bounds.getCentreY() });
 
-    g.setColour (panelBase.withAlpha (0.9f));
-    g.fillRoundedRectangle (track, 3.0f);
+    g.setColour (Theme::border);
+    g.fillRoundedRectangle (track, 2.0f);
 
     const auto thumbX = juce::jlimit (track.getX(), track.getRight(), sliderPos);
-    auto fill = juce::Rectangle<float> (track.getX(), track.getY(), thumbX - track.getX(), track.getHeight());
-    g.setColour (neonCyan.withAlpha (0.85f));
-    g.fillRoundedRectangle (fill, 3.0f);
+    auto fill = track.withRight (thumbX);
+    g.setColour (Theme::accent);
+    g.fillRoundedRectangle (fill, 2.0f);
 
-    g.setColour (juce::Colours::white.withAlpha (0.2f));
-    g.drawRoundedRectangle (track, 3.0f, 1.0f);
-
-    auto thumbBounds = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ thumbX, track.getCentreY() });
-    juce::Path glow;
-    glow.addEllipse (thumbBounds);
-    juce::DropShadow (neonMagenta.withAlpha (0.45f), 10, {}).drawForPath (g, glow);
-
-    g.setColour (juce::Colours::white);
-    g.fillEllipse (thumbBounds);
+    g.setColour (Theme::textPrimary);
+    g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ thumbX, track.getCentreY() }));
 }
 
-void NeonDialLook::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
-                                     float sliderPosProportional,
-                                     float rotaryStartAngle, float rotaryEndAngle,
-                                     juce::Slider& slider)
+void ScopeLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool /*isDown*/,
+                                      int buttonX, int buttonY, int buttonW, int buttonH,
+                                      juce::ComboBox& box)
 {
-    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (4.0f);
-    const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
-    const auto centre = bounds.getCentre();
-    const bool hover = slider.isMouseOverOrDragging();
-
-    g.setColour (dialBase.brighter (0.05f));
-    g.fillEllipse (bounds);
-
-    const auto trackRadius = radius - 6.0f;
-    const auto trackThickness = 3.0f;
-    juce::Path track;
-    track.addCentredArc (centre.x, centre.y, trackRadius, trackRadius,
-                         0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour (juce::Colours::white.withAlpha (0.15f));
-    g.strokePath (track, juce::PathStrokeType (trackThickness));
-
-    const auto angle = rotaryStartAngle + (rotaryEndAngle - rotaryStartAngle) * sliderPosProportional;
-    juce::Path valuePath;
-    valuePath.addCentredArc (centre.x, centre.y, trackRadius, trackRadius,
-                             0.0f, rotaryStartAngle, angle, true);
-    g.setColour (neonCyan.withAlpha (hover ? 0.95f : 0.85f));
-    g.strokePath (valuePath, juce::PathStrokeType (trackThickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    g.setColour (juce::Colours::white.withAlpha (0.25f));
-    g.drawEllipse (bounds, 1.0f);
-
-    const auto pointerLength = radius - 8.0f;
-    const juce::Point<float> pointerPos {
-        centre.x + std::cos (angle) * pointerLength,
-        centre.y + std::sin (angle) * pointerLength
-    };
-
-    g.setColour (juce::Colours::white.withAlpha (hover ? 0.95f : 0.85f));
-    g.drawLine (centre.x, centre.y, pointerPos.x, pointerPos.y, 1.8f);
-
-    g.setColour (dialBase.brighter (0.3f));
-    g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre));
-    g.setColour (juce::Colours::white.withAlpha (0.4f));
-    g.drawEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre), 1.0f);
-}
-
-void NeonDialLook::drawComboBox (juce::Graphics& g, int width, int height, bool /*isButtonDown*/,
-                                 int buttonX, int buttonY, int buttonW, int buttonH,
-                                 juce::ComboBox& box)
-{
-    auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height);
-
+    auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) w, (float) h);
     const bool hover = box.isMouseOver (true);
-    g.setColour (dialBase.brighter (hover ? 0.08f : 0.0f));
-    g.fillRoundedRectangle (bounds, 4.0f);
 
-    const float outlineAlpha = hover ? 0.35f : 0.15f;
-    g.setColour (juce::Colours::white.withAlpha (outlineAlpha));
-    g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
+    g.setColour (hover ? Theme::panelHover : Theme::panel);
+    g.fillRoundedRectangle (bounds, Theme::cornerRadius);
+    g.setColour (hover ? Theme::borderLight : Theme::border);
+    g.drawRoundedRectangle (bounds, Theme::cornerRadius, 1.0f);
 
-    juce::Rectangle<float> arrowArea ((float) buttonX, (float) buttonY, (float) buttonW, (float) buttonH);
-    auto center = arrowArea.getCentre();
-
+    auto arrowArea = juce::Rectangle<float> ((float) buttonX, (float) buttonY,
+                                             (float) buttonW, (float) buttonH);
+    auto ac = arrowArea.getCentre();
     juce::Path arrow;
-    arrow.addTriangle (center.x - 5.0f, center.y - 1.5f,
-                       center.x + 5.0f, center.y - 1.5f,
-                       center.x, center.y + 3.5f);
-
-    g.setColour (neonCyan.withAlpha (0.9f));
+    arrow.addTriangle (ac.x - 4.0f, ac.y - 1.5f, ac.x + 4.0f, ac.y - 1.5f, ac.x, ac.y + 3.0f);
+    g.setColour (Theme::textSecondary);
     g.fillPath (arrow);
-
-    if (box.hasKeyboardFocus (false))
-    {
-        g.setColour (neonMagenta.withAlpha (0.5f));
-        g.drawRoundedRectangle (bounds, 4.0f, 1.3f);
-    }
 }
 
-void NeonDialLook::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
-                                     bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
+void ScopeLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                                          bool highlighted, bool /*down*/)
 {
-    auto bounds = button.getLocalBounds().toFloat().reduced (4.0f);
-    const bool isOn = button.getToggleState();
-    const bool hover = shouldDrawButtonAsHighlighted || button.isMouseOver();
-    const bool down = shouldDrawButtonAsDown;
+    auto bounds = button.getLocalBounds().toFloat().reduced (2.0f);
+    const bool on = button.getToggleState();
+    const bool hover = highlighted || button.isMouseOver();
 
-    auto baseColour = dialBase.withAlpha (0.9f);
-    if (isOn)
-        baseColour = baseColour.brighter (0.08f);
+    g.setColour (on ? Theme::accent.withAlpha (0.12f) : Theme::panel);
+    g.fillRoundedRectangle (bounds, Theme::cornerRadius);
 
-    g.setColour (baseColour);
-    g.fillRoundedRectangle (bounds, 6.0f);
+    g.setColour (on ? Theme::accent.withAlpha (0.7f) : (hover ? Theme::borderLight : Theme::border));
+    g.drawRoundedRectangle (bounds, Theme::cornerRadius, 1.0f);
 
-    const float glowAlpha = isOn ? 0.9f : (hover ? 0.45f : 0.25f);
-    g.setColour (neonCyan.withAlpha (glowAlpha));
-    g.drawRoundedRectangle (bounds, 6.0f, 1.6f);
-
-    if (down && hover)
-    {
-        g.setColour (neonMagenta.withAlpha (0.25f));
-        g.drawRoundedRectangle (bounds.reduced (1.0f), 6.0f, 1.0f);
-    }
-
-    g.setColour (juce::Colours::white.withAlpha (isOn ? 0.95f : 0.75f));
-    g.setFont (juce::Font (14.0f, juce::Font::bold));
+    g.setColour (on ? Theme::accent : Theme::textSecondary);
+    g.setFont (juce::Font (Theme::labelSize, juce::Font::bold));
     g.drawText (button.getButtonText(), bounds, juce::Justification::centred);
-
-    if (isOn)
-    {
-        juce::Rectangle<float> indicator (bounds.getRight() - 18.0f, bounds.getCentreY() - 6.0f, 12.0f, 12.0f);
-        juce::Colour indicatorColour = neonCyan.withAlpha (hover ? 0.95f : 0.8f);
-        g.setColour (indicatorColour);
-        g.fillEllipse (indicator);
-    }
 }
 
-void NeonScopeAudioProcessorEditor::configureNeonKnob (juce::Slider& slider,
-                                                       juce::Label& label,
-                                                       const juce::String& name)
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Editor — Construction
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void NeonScopeAudioProcessorEditor::configureKnob (juce::Slider& slider,
+                                                     juce::Label& label,
+                                                     const juce::String& name)
 {
     slider.setName (name);
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, accentPrimary);
-    slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::white.withAlpha (0.25f));
-    slider.setColour (juce::Slider::thumbColourId, accentSecondary);
-    slider.setColour (juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
+    slider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+    slider.setNumDecimalPlacesToDisplay (1);
 
     label.setText (name, juce::dontSendNotification);
     label.setJustificationType (juce::Justification::centred);
-    label.setColour (juce::Label::textColourId, juce::Colours::white);
-    label.setFont (juce::Font (14.0f, juce::Font::bold));
+    label.setColour (juce::Label::textColourId, Theme::textSecondary);
+    label.setFont (juce::Font (Theme::labelSize));
 }
 
 void NeonScopeAudioProcessorEditor::refreshKnobLabels()
 {
-    auto setLabel = [] (juce::Label& label, const juce::String& title, const juce::String& value)
+    auto set = [] (juce::Label& l, const juce::String& title, const juce::String& value)
     {
-        label.setText (title + "\n" + value, juce::dontSendNotification);
+        l.setText (title + "\n" + value, juce::dontSendNotification);
     };
-
-    setLabel (cutoffLabel, "Filter Cutoff", formatHz (static_cast<float> (cutoffSlider.getValue())));
-    setLabel (resonanceLabel, "Filter Q", formatQ (static_cast<float> (resonanceSlider.getValue())));
-    setLabel (driveLabel, "Drive", formatDrive (static_cast<float> (driveSlider.getValue())));
-    setLabel (mixLabel, "Mix", formatPercent (static_cast<float> (mixSlider.getValue())));
-    setLabel (outputLabel, "Output", formatDb (static_cast<float> (outputSlider.getValue())));
-    setLabel (sensitivityLabel, "Sensitivity", formatSensitivity (static_cast<float> (sensitivitySlider.getValue())));
+    set (cutoffLabel, "Cutoff", formatHz ((float) cutoffSlider.getValue()));
+    set (resonanceLabel, "Q", formatQ ((float) resonanceSlider.getValue()));
+    set (driveLabel, "Drive", formatDrive ((float) driveSlider.getValue()));
+    set (mixLabel, "Mix", formatPercent ((float) mixSlider.getValue()));
+    set (outputLabel, "Output", formatDb ((float) outputSlider.getValue()));
+    set (sensitivityLabel, "Sensitivity", formatSensitivity ((float) sensitivitySlider.getValue()));
 }
+
 NeonScopeAudioProcessorEditor::NeonScopeAudioProcessorEditor (NeonScopeAudioProcessor& p)
-    : juce::AudioProcessorEditor (&p),
-      processor (p)
+    : juce::AudioProcessorEditor (&p), processor (p)
 {
-    setLookAndFeel (&neonDialLook);
+    setLookAndFeel (&scopeLnf);
 
-    configureNeonKnob (cutoffSlider, cutoffLabel, "Filter Cutoff");
-    configureNeonKnob (resonanceSlider, resonanceLabel, "Filter Q");
-    configureNeonKnob (driveSlider, driveLabel, "Drive");
-    configureNeonKnob (mixSlider, mixLabel, "Mix");
-    configureNeonKnob (outputSlider, outputLabel, "Output");
-    configureNeonKnob (sensitivitySlider, sensitivityLabel, "Sensitivity");
+    configureKnob (cutoffSlider, cutoffLabel, "Cutoff");
+    configureKnob (resonanceSlider, resonanceLabel, "Q");
+    configureKnob (driveSlider, driveLabel, "Drive");
+    configureKnob (mixSlider, mixLabel, "Mix");
+    configureKnob (outputSlider, outputLabel, "Output");
+    configureKnob (sensitivitySlider, sensitivityLabel, "Sensitivity");
 
-    auto styleDial = [] (juce::Slider& s)
-    {
-        s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        s.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
-        s.setNumDecimalPlacesToDisplay (2);
-    };
-
-    styleDial (cutoffSlider);
-    styleDial (resonanceSlider);
-    styleDial (driveSlider);
-    styleDial (mixSlider);
-    styleDial (outputSlider);
-    styleDial (sensitivitySlider);
-    mixSlider.setNumDecimalPlacesToDisplay (1);
-    outputSlider.setNumDecimalPlacesToDisplay (1);
-    sensitivitySlider.setNumDecimalPlacesToDisplay (1);
-
-    cutoffSlider.textFromValueFunction = [] (double value) { return formatHz (static_cast<float> (value)); };
-    resonanceSlider.textFromValueFunction = [] (double value) { return formatQ (static_cast<float> (value)); };
-    driveSlider.textFromValueFunction = [] (double value) { return formatDrive (static_cast<float> (value)); };
-    mixSlider.textFromValueFunction = [] (double value) { return formatPercent (static_cast<float> (value)); };
-    outputSlider.textFromValueFunction = [] (double value) { return formatDb (static_cast<float> (value)); };
-    sensitivitySlider.textFromValueFunction = [] (double value) { return formatSensitivity (static_cast<float> (value)); };
+    cutoffSlider.textFromValueFunction = [] (double v) { return formatHz ((float) v); };
+    resonanceSlider.textFromValueFunction = [] (double v) { return formatQ ((float) v); };
+    driveSlider.textFromValueFunction = [] (double v) { return formatDrive ((float) v); };
+    mixSlider.textFromValueFunction = [] (double v) { return formatPercent ((float) v); };
+    outputSlider.textFromValueFunction = [] (double v) { return formatDb ((float) v); };
+    sensitivitySlider.textFromValueFunction = [] (double v) { return formatSensitivity ((float) v); };
 
     auto configureCombo = [] (juce::ComboBox& box)
     {
         box.setJustificationType (juce::Justification::centredLeft);
-        box.setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
-        box.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-        box.setColour (juce::ComboBox::backgroundColourId, juce::Colours::white.withAlpha (0.07f));
     };
-
     configureCombo (modeBox);
     configureCombo (filterTypeBox);
     configureCombo (satModeBox);
@@ -311,14 +250,12 @@ NeonScopeAudioProcessorEditor::NeonScopeAudioProcessorEditor (NeonScopeAudioProc
     satModeBox.addItem ("Hard Clip", 5);
     satModeBox.addItem ("Foldback", 6);
 
-    oversamplingBox.clear();
     oversamplingBox.addItem ("1x", 1);
     oversamplingBox.addItem ("1.3x", 2);
     oversamplingBox.addItem ("1.7x", 3);
     oversamplingBox.addItem ("2x", 4);
     oversamplingBox.addItem ("4x", 5);
 
-    monitorModeBox.clear();
     monitorModeBox.addItem ("Stereo", 1);
     monitorModeBox.addItem ("Mono", 2);
     monitorModeBox.addItem ("Left", 3);
@@ -326,81 +263,44 @@ NeonScopeAudioProcessorEditor::NeonScopeAudioProcessorEditor (NeonScopeAudioProc
     monitorModeBox.addItem ("Mid", 5);
     monitorModeBox.addItem ("Side", 6);
 
-    addAndMakeVisible (modeBox);
-    addAndMakeVisible (filterTypeBox);
-    addAndMakeVisible (satModeBox);
-    addAndMakeVisible (oversamplingBox);
-    addAndMakeVisible (monitorModeBox);
+    for (auto* c : std::initializer_list<juce::Component*> {
+             &modeBox, &filterTypeBox, &satModeBox, &oversamplingBox, &monitorModeBox,
+             &cutoffSlider, &cutoffLabel, &resonanceSlider, &resonanceLabel,
+             &driveSlider, &driveLabel, &mixSlider, &mixLabel,
+             &outputSlider, &outputLabel, &sensitivitySlider, &sensitivityLabel,
+             &autoGainButton, &limiterButton, &bandListenButton,
+             &autoGainValueLabel, &monitorModeLabel })
+        addAndMakeVisible (c);
 
-    addAndMakeVisible (cutoffSlider);
-    addAndMakeVisible (cutoffLabel);
-    addAndMakeVisible (resonanceSlider);
-    addAndMakeVisible (resonanceLabel);
-    addAndMakeVisible (driveSlider);
-    addAndMakeVisible (driveLabel);
-    addAndMakeVisible (mixSlider);
-    addAndMakeVisible (mixLabel);
-    addAndMakeVisible (outputSlider);
-    addAndMakeVisible (outputLabel);
-    addAndMakeVisible (sensitivitySlider);
-    addAndMakeVisible (sensitivityLabel);
-    addAndMakeVisible (autoGainButton);
-    addAndMakeVisible (limiterButton);
-    addAndMakeVisible (bandListenButton);
-    addAndMakeVisible (autoGainValueLabel);
-    addAndMakeVisible (monitorModeLabel);
-
-    modeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        processor.getValueTreeState(), "mode", modeBox);
-    filterTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        processor.getValueTreeState(), "filterType", filterTypeBox);
-    satModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        processor.getValueTreeState(), "satMode", satModeBox);
-    oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        processor.getValueTreeState(), "oversampling", oversamplingBox);
-    monitorModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        processor.getValueTreeState(), "monitorMode", monitorModeBox);
-
-    cutoffAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "cutoff", cutoffSlider);
-
-    driveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "drive", driveSlider);
-
-    resonanceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "resonance", resonanceSlider);
-
-    mixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "mix", mixSlider);
-
-    outputTrimAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "outputTrim", outputSlider);
-
-    sensitivityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processor.getValueTreeState(), "sensitivity", sensitivitySlider);
-
-    autoGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processor.getValueTreeState(), "AUTO_GAIN", autoGainButton);
-
-    limiterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processor.getValueTreeState(), "SAFETY_LIMITER", limiterButton);
-
-    bandListenAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processor.getValueTreeState(), "bandListen", bandListenButton);
+    auto& vts = processor.getValueTreeState();
+    modeAttachment        = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (vts, "mode", modeBox);
+    filterTypeAttachment  = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (vts, "filterType", filterTypeBox);
+    satModeAttachment     = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (vts, "satMode", satModeBox);
+    oversamplingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (vts, "oversampling", oversamplingBox);
+    monitorModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (vts, "monitorMode", monitorModeBox);
+    cutoffAttachment      = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "cutoff", cutoffSlider);
+    driveAttachment       = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "drive", driveSlider);
+    resonanceAttachment   = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "resonance", resonanceSlider);
+    mixAttachment         = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "mix", mixSlider);
+    outputTrimAttachment  = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "outputTrim", outputSlider);
+    sensitivityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (vts, "sensitivity", sensitivitySlider);
+    autoGainAttachment    = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (vts, "AUTO_GAIN", autoGainButton);
+    limiterAttachment     = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (vts, "SAFETY_LIMITER", limiterButton);
+    bandListenAttachment  = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (vts, "bandListen", bandListenButton);
 
     autoGainValueLabel.setJustificationType (juce::Justification::centred);
-    autoGainValueLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
-    autoGainValueLabel.setFont (juce::Font (13.0f, juce::Font::bold));
+    autoGainValueLabel.setColour (juce::Label::textColourId, Theme::textSecondary);
+    autoGainValueLabel.setFont (juce::Font (Theme::valueSize, juce::Font::bold));
     autoGainValueLabel.setInterceptsMouseClicks (false, false);
     autoGainValueLabel.setText ("AG: +0.0 dB", juce::dontSendNotification);
 
-    monitorModeLabel.setText ("Monitor Mode", juce::dontSendNotification);
+    monitorModeLabel.setText ("Monitor", juce::dontSendNotification);
     monitorModeLabel.setJustificationType (juce::Justification::centredLeft);
-    monitorModeLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
-    monitorModeLabel.setFont (juce::Font (13.0f, juce::Font::bold));
+    monitorModeLabel.setColour (juce::Label::textColourId, Theme::textSecondary);
+    monitorModeLabel.setFont (juce::Font (Theme::labelSize));
     monitorModeLabel.setInterceptsMouseClicks (false, false);
 
-    setSize (760, 560);
+    setSize (760, 540);
     startTimerHz (60);
     refreshKnobLabels();
     updateVisualState();
@@ -411,336 +311,324 @@ NeonScopeAudioProcessorEditor::~NeonScopeAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-void NeonScopeAudioProcessorEditor::paint (juce::Graphics& g)
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Editor — Drawing Helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void NeonScopeAudioProcessorEditor::drawPanel (juce::Graphics& g,
+                                                 juce::Rectangle<float> area,
+                                                 const juce::String& title)
 {
-    g.fillAll (backgroundColour);
+    if (area.isEmpty()) return;
 
-    auto drawPanel = [&] (juce::Rectangle<float> area, const juce::String& title) -> juce::Rectangle<float>
+    g.setColour (Theme::panel);
+    g.fillRoundedRectangle (area, Theme::cornerRadius);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (area, Theme::cornerRadius, 1.0f);
+
+    if (title.isNotEmpty())
     {
-        if (area.isEmpty())
-            return {};
+        auto header = area.reduced (14.0f, 0.0f).removeFromTop (32.0f);
+        g.setColour (Theme::textSecondary);
+        g.setFont (juce::Font (Theme::sectionSize, juce::Font::bold));
+        g.drawText (title.toUpperCase(), header, juce::Justification::centredLeft);
 
-        auto panel = area;
-        g.setColour (juce::Colours::white.withAlpha (0.04f));
-        g.fillRoundedRectangle (panel, 8.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.15f));
-        g.drawRoundedRectangle (panel, 8.0f, 1.0f);
-
-        auto content = panel.reduced (12.0f);
-        auto header = content.removeFromTop (24.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::Font (14.0f, juce::Font::bold));
-        g.drawText (title, header, juce::Justification::left);
-        return content;
-    };
-
-    g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.setFont (juce::Font (24.0f, juce::Font::bold));
-    g.drawText ("NeonScope", titleBounds, juce::Justification::centredLeft);
-
-    if (! spectrumBounds.isEmpty())
-    {
-        auto spectrumPanel = spectrumBounds;
-        g.setColour (juce::Colours::white.withAlpha (0.04f));
-        g.fillRoundedRectangle (spectrumPanel, 8.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.15f));
-        g.drawRoundedRectangle (spectrumPanel, 8.0f, 1.0f);
-
-        auto spectrumArea = spectrumPanel.reduced (14.0f, 10.0f);
-        const float barWidth = spectrumArea.getWidth() / static_cast<float> (NeonScopeAudioProcessor::numBands);
-        const float spacing = 6.0f;
-
-        for (int band = 0; band < NeonScopeAudioProcessor::numBands; ++band)
-        {
-            const float value = juce::jlimit (0.0f, 1.0f, bandCache[static_cast<size_t> (band)]);
-            const float height = juce::jmax (3.0f, spectrumArea.getHeight() * value);
-
-            juce::Rectangle<float> bar {
-                spectrumArea.getX() + band * barWidth + spacing * 0.5f,
-                spectrumArea.getBottom() - height,
-                juce::jmax (2.0f, barWidth - spacing),
-                height
-            };
-
-            g.setColour (accentPrimary.withAlpha (0.7f));
-            g.fillRoundedRectangle (bar, 3.0f);
-
-            g.setColour (accentPrimary.withAlpha (0.3f));
-            g.drawRoundedRectangle (bar, 3.0f, 0.5f);
-        }
-    }
-
-    juce::ignoreUnused (drawPanel (distortionBounds, "Distortion"));
-    juce::ignoreUnused (drawPanel (settingsBounds, "Settings"));
-    auto metersContent = drawPanel (metersBounds, "Meters");
-
-    if (! metersContent.isEmpty())
-    {
-        auto legendArea = metersContent.removeFromTop (20.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.65f));
-        g.setFont (juce::Font (12.0f, juce::Font::bold));
-        auto legendCell = legendArea.removeFromLeft (legendArea.getWidth() / 3);
-        g.drawText ("Peak", legendCell, juce::Justification::centred);
-        legendCell = legendArea.removeFromLeft (legendArea.getWidth() / 2);
-        g.drawText ("RMS", legendCell, juce::Justification::centred);
-        g.drawText ("Corr", legendArea, juce::Justification::centred);
-
-        auto correlationArea = metersContent.removeFromBottom (80.0f);
-        auto stereoArea = metersContent;
-
-        auto dbToNorm = [] (float db, float minDb, float maxDb)
-        {
-            return juce::jlimit (0.0f, 1.0f, juce::jmap (db, minDb, maxDb, 0.0f, 1.0f));
-        };
-
-        auto drawMeter = [&] (juce::Rectangle<float> panel,
-                              float rmsDb,
-                              float peakDb,
-                              float peakHoldNorm,
-                              const juce::String& label,
-                              bool showTicks)
-        {
-            if (panel.isEmpty())
-                return;
-
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRoundedRectangle (panel, 10.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.drawRoundedRectangle (panel, 10.0f, 1.0f);
-
-            auto inner = panel.reduced (26.0f, 34.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.05f));
-            g.fillRoundedRectangle (inner, 8.0f);
-
-            const float fillNorm = dbToNorm (rmsDb, meterDbFloor, meterDbCeiling);
-            const float peakNorm = dbToNorm (peakDb, meterDbFloor, peakDbCeiling);
-
-            const float fillHeight = inner.getHeight() * fillNorm;
-            auto fillRect = inner.withY (inner.getBottom() - fillHeight).withHeight (fillHeight);
-            juce::ColourGradient gradient (accentPrimary, fillRect.getCentreX(), fillRect.getBottom(),
-                                           accentSecondary, fillRect.getCentreX(), fillRect.getY(), false);
-            gradient.addColour (0.5, accentTertiary);
-            g.setGradientFill (gradient);
-            g.fillRect (fillRect);
-
-            g.setColour (juce::Colours::white.withAlpha (0.85f));
-            const float peakY = inner.getBottom() - inner.getHeight() * peakNorm;
-            g.drawLine (inner.getX(), peakY, inner.getRight(), peakY, 1.0f);
-
-            const float holdY = inner.getBottom() - inner.getHeight() * juce::jlimit (0.0f, 1.0f, peakHoldNorm);
-            g.setColour (accentSecondary.brighter (0.15f));
-            g.fillEllipse ({ inner.getCentreX() - 4.0f, holdY - 4.0f, 8.0f, 8.0f });
-
-            if (showTicks)
-            {
-                g.setFont (juce::Font (12.0f));
-                const auto& ticks = processor.getMeterTicks();
-                for (auto db : ticks)
-                {
-                    const float tickNorm = dbToNorm (db, meterDbFloor, meterDbCeiling);
-                    const float tickY = inner.getBottom() - inner.getHeight() * tickNorm;
-                    g.setColour (juce::Colours::white.withAlpha (0.25f));
-                    g.drawLine (inner.getX() - 8.0f, tickY, inner.getX(), tickY, 1.0f);
-                    g.drawText (juce::String (db, 0) + " dB",
-                                juce::Rectangle<float> (inner.getX() - 70.0f, tickY - 8.0f, 60.0f, 16.0f),
-                                juce::Justification::right);
-                }
-            }
-
-            g.setColour (juce::Colours::white.withAlpha (0.85f));
-            g.setFont (juce::Font (16.0f, juce::Font::bold));
-            g.drawText (label,
-                        juce::Rectangle<float> (panel.getX(), panel.getY() + 6.0f, panel.getWidth(), 24.0f),
-                        juce::Justification::centred);
-
-            g.setFont (juce::Font (13.0f));
-            const auto rmsText = formatDb (rmsDb);
-            const auto peakText = formatDb (peakDb);
-            g.drawText (rmsText + " RMS | " + peakText + " PK",
-                        juce::Rectangle<float> (panel.getX(), panel.getBottom() - 24.0f, panel.getWidth(), 20.0f),
-                        juce::Justification::centred);
-        };
-
-        auto leftArea = stereoArea.removeFromLeft (stereoArea.getWidth() * 0.5f).reduced (16.0f, 6.0f);
-        auto rightArea = stereoArea.reduced (16.0f, 6.0f);
-
-        drawMeter (leftArea, leftRmsDb, leftPeakDb, leftPeakHold, "Left", true);
-        drawMeter (rightArea, rightRmsDb, rightPeakDb, rightPeakHold, "Right", false);
-
-        if (! correlationArea.isEmpty())
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
-            g.fillRoundedRectangle (correlationArea, 10.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.drawRoundedRectangle (correlationArea, 10.0f, 1.0f);
-
-            auto corrInner = correlationArea.reduced (16.0f, 12.0f);
-            const float correlationNorm = juce::jlimit (0.0f, 1.0f, (correlationValue + 1.0f) * 0.5f);
-
-            auto track = corrInner.withHeight (corrInner.getHeight() * 0.35f).withCentre (corrInner.getCentre());
-            juce::Colour corrColour {};
-            if (correlationNorm < 0.5f)
-            {
-                const float t = correlationNorm / 0.5f;
-                corrColour = juce::Colours::red.interpolatedWith (accentPrimary, t).withAlpha (0.9f);
-            }
-            else
-            {
-                const float t = (correlationNorm - 0.5f) / 0.5f;
-                corrColour = accentPrimary.interpolatedWith (accentTertiary, t).withAlpha (0.9f);
-            }
-
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.drawLine (track.getCentreX(), corrInner.getY(), track.getCentreX(), corrInner.getBottom(), 1.0f);
-
-            auto positiveTrack = track.withTrimmedRight (track.getWidth() * (1.0f - correlationNorm));
-            g.setColour (corrColour);
-            g.fillRoundedRectangle (positiveTrack, 6.0f);
-
-            const float indicatorX = track.getX() + track.getWidth() * correlationNorm;
-            g.setColour (corrColour.brighter (0.2f));
-            g.fillEllipse ({ indicatorX - 6.0f, track.getCentreY() - 6.0f, 12.0f, 12.0f });
-            g.setColour (juce::Colours::white.withAlpha (0.9f));
-            g.drawEllipse ({ indicatorX - 6.0f, track.getCentreY() - 6.0f, 12.0f, 12.0f }, 1.5f);
-
-            g.setColour (juce::Colours::white.withAlpha (0.85f));
-            g.setFont (juce::Font (16.0f, juce::Font::bold));
-            g.drawText ("Correlation", corrInner.removeFromTop (22.0f), juce::Justification::left);
-            g.setFont (juce::Font (14.0f));
-            g.drawText (juce::String (correlationValue, 1),
-                        juce::Rectangle<float> (corrInner.getRight() - 60.0f, corrInner.getY() - 2.0f, 60.0f, 24.0f),
-                        juce::Justification::right);
-
-            auto widthRow = corrInner.removeFromBottom (20.0f);
-            auto widthLabel = widthRow.removeFromLeft (70.0f);
-            g.setFont (juce::Font (12.0f, juce::Font::bold));
-            g.drawText ("Width", widthLabel, juce::Justification::left);
-            auto widthBar = widthRow.reduced (4.0f, 4.0f);
-            auto widthFill = widthBar.withWidth (widthBar.getWidth() * juce::jlimit (0.0f, 1.0f, widthValue));
-            g.setColour (accentTertiary.withAlpha (0.8f));
-            g.drawRoundedRectangle (widthBar, 5.0f, 1.0f);
-            g.fillRoundedRectangle (widthFill, 5.0f);
-        }
-
-        if (limiterFlash > 0.02f && ! metersBounds.isEmpty())
-        {
-            auto flashArea = metersBounds.reduced (20.0f, 4.0f);
-            g.setColour (accentSecondary.withAlpha (0.1f + limiterFlash * 0.35f));
-            g.fillRoundedRectangle (flashArea.removeFromTop (4.0f), 2.0f);
-        }
+        g.setColour (Theme::border);
+        g.drawLine (area.getX() + 14.0f, area.getY() + 32.0f,
+                    area.getRight() - 14.0f, area.getY() + 32.0f, 1.0f);
     }
 }
 
+void NeonScopeAudioProcessorEditor::drawSpectrum (juce::Graphics& g)
+{
+    if (spectrumBounds.isEmpty()) return;
+
+    g.setColour (Theme::panel);
+    g.fillRoundedRectangle (spectrumBounds, Theme::cornerRadius);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (spectrumBounds, Theme::cornerRadius, 1.0f);
+
+    auto area = spectrumBounds.reduced (12.0f, 8.0f);
+    const float barW = area.getWidth() / (float) NeonScopeAudioProcessor::numBands;
+    const float gap = 4.0f;
+
+    for (int i = 0; i < NeonScopeAudioProcessor::numBands; ++i)
+    {
+        const float val = juce::jlimit (0.0f, 1.0f, bandCache[(size_t) i]);
+        const float h = juce::jmax (2.0f, area.getHeight() * val);
+
+        juce::Rectangle<float> bar {
+            area.getX() + i * barW + gap * 0.5f,
+            area.getBottom() - h,
+            juce::jmax (1.0f, barW - gap),
+            h
+        };
+
+        g.setColour (Theme::accent.withAlpha (0.15f + val * 0.55f));
+        g.fillRoundedRectangle (bar, 2.0f);
+    }
+}
+
+void NeonScopeAudioProcessorEditor::drawSingleMeter (juce::Graphics& g,
+                                                       juce::Rectangle<float> area,
+                                                       float rmsDb, float peakDb,
+                                                       float holdNorm,
+                                                       const juce::String& label)
+{
+    if (area.isEmpty()) return;
+
+    // Label
+    auto labelArea = area.removeFromTop (18.0f);
+    g.setColour (Theme::textSecondary);
+    g.setFont (juce::Font (Theme::labelSize));
+    g.drawText (label, labelArea, juce::Justification::centred);
+
+    // Value readout
+    auto readout = area.removeFromBottom (16.0f);
+    g.setFont (juce::Font (10.0f));
+    g.setColour (Theme::textSecondary);
+    g.drawText (juce::String (rmsDb, 1) + " dB", readout, juce::Justification::centred);
+
+    auto meterArea = area.reduced (0.0f, 4.0f);
+    auto inner = meterArea.withSizeKeepingCentre (juce::jmin (14.0f, meterArea.getWidth()), meterArea.getHeight());
+
+    // Background track
+    g.setColour (Theme::knobFace);
+    g.fillRoundedRectangle (inner, 3.0f);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (inner, 3.0f, 0.5f);
+
+    // RMS fill
+    const float rmsNorm = dbToNorm (rmsDb, meterDbFloor, meterDbCeiling);
+    const float fillH = inner.getHeight() * rmsNorm;
+    auto fillRect = inner.withTop (inner.getBottom() - fillH);
+    g.setColour (Theme::accent.withAlpha (0.8f));
+    g.fillRoundedRectangle (fillRect, 2.0f);
+
+    // Peak line
+    const float peakNorm = dbToNorm (peakDb, meterDbFloor, peakDbCeiling);
+    const float peakY = inner.getBottom() - inner.getHeight() * peakNorm;
+    g.setColour (Theme::textPrimary.withAlpha (0.7f));
+    g.drawLine (inner.getX(), peakY, inner.getRight(), peakY, 1.0f);
+
+    // Peak hold dot
+    const float holdY = inner.getBottom() - inner.getHeight() * juce::jlimit (0.0f, 1.0f, holdNorm);
+    g.setColour (Theme::accent);
+    g.fillEllipse ({ inner.getCentreX() - 3.0f, holdY - 3.0f, 6.0f, 6.0f });
+
+    // Tick marks
+    g.setFont (juce::Font (9.0f));
+    for (auto db : { 0.0f, -6.0f, -12.0f, -30.0f, -60.0f })
+    {
+        const float n = dbToNorm (db, meterDbFloor, meterDbCeiling);
+        const float ty = inner.getBottom() - inner.getHeight() * n;
+        g.setColour (Theme::border);
+        g.drawLine (inner.getRight() + 2.0f, ty, inner.getRight() + 6.0f, ty, 0.5f);
+    }
+}
+
+void NeonScopeAudioProcessorEditor::drawCorrelation (juce::Graphics& g,
+                                                       juce::Rectangle<float> area)
+{
+    if (area.isEmpty()) return;
+
+    auto labelRow = area.removeFromTop (18.0f);
+    g.setColour (Theme::textSecondary);
+    g.setFont (juce::Font (Theme::labelSize));
+    g.drawText ("Correlation", labelRow.removeFromLeft (labelRow.getWidth() * 0.6f),
+                juce::Justification::left);
+    g.drawText (juce::String (correlationValue, 2), labelRow, juce::Justification::right);
+
+    area.removeFromTop (4.0f);
+
+    // Track
+    auto track = area.removeFromTop (8.0f);
+    g.setColour (Theme::knobFace);
+    g.fillRoundedRectangle (track, 4.0f);
+    g.setColour (Theme::border);
+    g.drawRoundedRectangle (track, 4.0f, 0.5f);
+
+    // Center line
+    g.setColour (Theme::border);
+    g.drawLine (track.getCentreX(), track.getY(), track.getCentreX(), track.getBottom(), 1.0f);
+
+    // Fill from center
+    const float corrNorm = juce::jlimit (0.0f, 1.0f, (correlationValue + 1.0f) * 0.5f);
+    const float indicatorX = track.getX() + track.getWidth() * corrNorm;
+
+    juce::Colour corrColour = correlationValue > 0.0f
+        ? Theme::accent.withAlpha (0.8f)
+        : Theme::danger.withAlpha (0.8f);
+
+    auto fillBar = corrNorm >= 0.5f
+        ? juce::Rectangle<float> (track.getCentreX(), track.getY(),
+                                   indicatorX - track.getCentreX(), track.getHeight())
+        : juce::Rectangle<float> (indicatorX, track.getY(),
+                                   track.getCentreX() - indicatorX, track.getHeight());
+    g.setColour (corrColour);
+    g.fillRect (fillBar);
+
+    g.fillEllipse ({ indicatorX - 5.0f, track.getCentreY() - 5.0f, 10.0f, 10.0f });
+
+    area.removeFromTop (8.0f);
+
+    // Width
+    auto widthLabel = area.removeFromTop (16.0f);
+    g.setColour (Theme::textSecondary);
+    g.setFont (juce::Font (Theme::labelSize));
+    g.drawText ("Width", widthLabel.removeFromLeft (50.0f), juce::Justification::left);
+    g.drawText (juce::String (widthValue, 2), widthLabel, juce::Justification::right);
+
+    auto widthTrack = area.removeFromTop (6.0f).reduced (0.0f, 1.0f);
+    g.setColour (Theme::knobFace);
+    g.fillRoundedRectangle (widthTrack, 3.0f);
+    auto widthFill = widthTrack.withWidth (widthTrack.getWidth() * juce::jlimit (0.0f, 1.0f, widthValue));
+    g.setColour (Theme::accent.withAlpha (0.65f));
+    g.fillRoundedRectangle (widthFill, 3.0f);
+}
+
+void NeonScopeAudioProcessorEditor::drawMeters (juce::Graphics& g,
+                                                  juce::Rectangle<float> area)
+{
+    if (area.isEmpty()) return;
+
+    drawPanel (g, area, "Meters");
+    auto content = area.reduced (14.0f).withTrimmedTop (36.0f);
+
+    auto corrArea = content.removeFromBottom (70.0f);
+    content.removeFromBottom (6.0f);
+
+    auto leftArea = content.removeFromLeft (content.getWidth() * 0.5f);
+    auto rightArea = content;
+
+    drawSingleMeter (g, leftArea, leftRmsDb, leftPeakDb, leftPeakHold, "L");
+    drawSingleMeter (g, rightArea, rightRmsDb, rightPeakDb, rightPeakHold, "R");
+    drawCorrelation (g, corrArea.reduced (6.0f, 0.0f));
+
+    // Limiter activity indicator
+    if (limiterFlash > 0.02f)
+    {
+        auto flashBar = area.reduced (14.0f, 0.0f).removeFromTop (2.0f).translated (0.0f, 33.0f);
+        g.setColour (Theme::danger.withAlpha (limiterFlash * 0.8f));
+        g.fillRect (flashBar);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Editor — Paint
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void NeonScopeAudioProcessorEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (Theme::background);
+
+    // Title
+    g.setColour (Theme::textPrimary);
+    g.setFont (juce::Font (Theme::titleSize, juce::Font::bold));
+    g.drawText ("NeonScope", titleBounds.reduced (14.0f, 0.0f), juce::Justification::centredLeft);
+
+    g.setColour (Theme::textSecondary);
+    g.setFont (juce::Font (Theme::labelSize));
+    g.drawText ("v2.0", titleBounds.reduced (14.0f, 0.0f), juce::Justification::centredRight);
+
+    drawSpectrum (g);
+    drawPanel (g, distortionBounds, "Distortion");
+    drawPanel (g, settingsBounds, "Settings");
+    drawMeters (g, metersBounds);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Editor — Layout
+// ═══════════════════════════════════════════════════════════════════════════════
+
 void NeonScopeAudioProcessorEditor::resized()
 {
-    auto bounds = getLocalBounds();
+    const auto M = (int) Theme::margin;
+    auto bounds = getLocalBounds().reduced (M);
 
-    titleBounds = bounds.removeFromTop (50).toFloat();
-    spectrumBounds = bounds.removeFromTop (110).toFloat().reduced (12.0f, 6.0f);
+    titleBounds = bounds.removeFromTop (40).toFloat();
+    spectrumBounds = bounds.removeFromTop (100).toFloat();
+    bounds.removeFromTop (M);
 
-    auto content = bounds.reduced (12);
-    auto topRow = content.removeFromTop (200);
+    // Controls row
+    auto topRow = bounds.removeFromTop (210);
     auto distortionArea = topRow.removeFromLeft (juce::roundToInt (topRow.getWidth() * 0.55f));
+    topRow.removeFromLeft (M);
     distortionBounds = distortionArea.toFloat();
     settingsBounds = topRow.toFloat();
 
-    content.removeFromTop (6);
-    metersBounds = content.toFloat();
+    bounds.removeFromTop (M);
+    metersBounds = bounds.toFloat();
 
-    constexpr int panelHeaderOffset = 28;
-    auto distortionContent = distortionArea.reduced (8);
-    distortionContent.removeFromTop (panelHeaderOffset);
-    constexpr int toggleRowHeight = 38;
-    auto toggleRow = distortionContent.removeFromBottom (toggleRowHeight);
-    const int dialCount = 4;
-    const int dialWidth = juce::jmax (1, distortionContent.getWidth() / dialCount);
+    // ── Distortion panel internals ──
+    auto dContent = distortionArea.reduced (12);
+    dContent.removeFromTop (36);  // header
+    auto toggleRow = dContent.removeFromBottom (34);
 
-    auto layoutDial = [] (juce::Rectangle<int> area, juce::Slider& slider, juce::Label& label)
+    const int dialW = dContent.getWidth() / 4;
+    auto placeDial = [&] (int i, juce::Slider& s, juce::Label& l)
     {
-        constexpr int labelHeight = 40;
-        auto sliderArea = area.removeFromTop (juce::jmax (20, area.getHeight() - labelHeight)).reduced (4, 4);
-        slider.setBounds (sliderArea);
-        label.setBounds (area);
+        auto cell = juce::Rectangle<int> (
+            dContent.getX() + i * dialW, dContent.getY(),
+            (i == 3) ? dContent.getRight() - (dContent.getX() + 3 * dialW) : dialW,
+            dContent.getHeight());
+        auto knobArea = cell.removeFromTop (cell.getHeight() - 32).reduced (4, 2);
+        s.setBounds (knobArea);
+        l.setBounds (cell);
     };
-
-    auto placeDial = [&] (int index, juce::Slider& slider, juce::Label& label)
-    {
-        auto cell = juce::Rectangle<int> (distortionContent.getX() + index * dialWidth,
-                                          distortionContent.getY(),
-                                          (index == dialCount - 1)
-                                              ? distortionContent.getRight() - (distortionContent.getX() + index * dialWidth)
-                                              : dialWidth,
-                                          distortionContent.getHeight());
-        layoutDial (cell, slider, label);
-    };
-
     placeDial (0, driveSlider, driveLabel);
     placeDial (1, mixSlider, mixLabel);
     placeDial (2, outputSlider, outputLabel);
     placeDial (3, sensitivitySlider, sensitivityLabel);
 
-    auto settingsContent = settingsBounds.reduced (12.0f).toNearestInt();
-    settingsContent.removeFromTop (panelHeaderOffset);
-    constexpr int comboRowHeight = 32;
-    constexpr int comboSpacing = 8;
+    const int tw = toggleRow.getWidth() / 3;
+    autoGainButton.setBounds (toggleRow.removeFromLeft (tw).reduced (2));
+    limiterButton.setBounds (toggleRow.removeFromLeft (tw).reduced (2));
+    autoGainValueLabel.setBounds (toggleRow.reduced (2));
 
-    auto layoutComboRow = [] (juce::Rectangle<int> area, juce::ComboBox& left, juce::ComboBox& right)
+    // ── Settings panel internals ──
+    auto sContent = settingsBounds.reduced (12.0f).toNearestInt();
+    sContent.removeFromTop (36);  // header
+    constexpr int rowH = 30;
+    constexpr int gap = 6;
+
+    auto layoutRow = [] (juce::Rectangle<int> row, juce::ComboBox& a, juce::ComboBox& b)
     {
-        auto padded = area.reduced (6, 0);
-        auto leftArea = padded.removeFromLeft (padded.getWidth() / 2);
-        left.setBounds (leftArea.reduced (3, 0));
-        right.setBounds (padded.reduced (3, 0));
+        auto left = row.removeFromLeft (row.getWidth() / 2);
+        a.setBounds (left.reduced (2, 0));
+        b.setBounds (row.reduced (2, 0));
     };
+    layoutRow (sContent.removeFromTop (rowH), modeBox, filterTypeBox);
+    sContent.removeFromTop (gap);
+    layoutRow (sContent.removeFromTop (rowH), satModeBox, oversamplingBox);
+    sContent.removeFromTop (gap);
 
-    auto row1 = settingsContent.removeFromTop (comboRowHeight);
-    layoutComboRow (row1, modeBox, filterTypeBox);
-    settingsContent.removeFromTop (comboSpacing);
+    auto monRow = sContent.removeFromTop (rowH);
+    monitorModeLabel.setBounds (monRow.removeFromLeft (60));
+    monitorModeBox.setBounds (monRow.removeFromLeft (monRow.getWidth() / 2).reduced (2, 0));
+    bandListenButton.setBounds (monRow.reduced (2, 0));
+    sContent.removeFromTop (gap);
 
-    auto row2 = settingsContent.removeFromTop (comboRowHeight);
-    layoutComboRow (row2, satModeBox, oversamplingBox);
-    settingsContent.removeFromTop (comboSpacing);
-
-    auto row3 = settingsContent.removeFromTop (comboRowHeight);
-    auto monitorLabelArea = row3.removeFromLeft (90);
-    monitorModeLabel.setBounds (monitorLabelArea);
-    auto monitorComboArea = row3.removeFromLeft (juce::roundToInt (row3.getWidth() * 0.5f));
-    monitorModeBox.setBounds (monitorComboArea.reduced (3, 0));
-    bandListenButton.setBounds (row3.reduced (3, 0));
-    settingsContent.removeFromTop (comboSpacing);
-
-    auto layoutKnob = [] (juce::Rectangle<int> area, juce::Slider& slider, juce::Label& label)
+    // Filter knobs
+    auto filterArea = sContent;
+    const int fKnobW = filterArea.getWidth() / 2;
+    auto placeFKnob = [&] (int i, juce::Slider& s, juce::Label& l)
     {
-        constexpr int labelHeight = 34;
-        auto sliderArea = area.removeFromTop (juce::jmax (18, area.getHeight() - labelHeight)).reduced (8, 3);
-        slider.setBounds (sliderArea);
-        label.setBounds (area);
+        auto cell = juce::Rectangle<int> (
+            filterArea.getX() + i * fKnobW, filterArea.getY(),
+            (i == 1) ? filterArea.getRight() - (filterArea.getX() + fKnobW) : fKnobW,
+            filterArea.getHeight());
+        auto knobArea = cell.removeFromTop (cell.getHeight() - 28).reduced (8, 2);
+        s.setBounds (knobArea);
+        l.setBounds (cell);
     };
-
-    auto filterArea = settingsContent;
-    const int filterCellWidth = juce::jmax (1, filterArea.getWidth() / 2);
-
-    auto placeFilterKnob = [&] (int index, juce::Slider& slider, juce::Label& label)
-    {
-        auto cell = juce::Rectangle<int> (filterArea.getX() + index * filterCellWidth,
-                                          filterArea.getY(),
-                                          (index == 1)
-                                              ? filterArea.getRight() - (filterArea.getX() + index * filterCellWidth)
-                                              : filterCellWidth,
-                                          filterArea.getHeight());
-        layoutKnob (cell, slider, label);
-    };
-
-    placeFilterKnob (0, cutoffSlider, cutoffLabel);
-    placeFilterKnob (1, resonanceSlider, resonanceLabel);
-
-    const int toggleCellWidth = toggleRow.getWidth() / 3;
-    auto autoGainArea = toggleRow.removeFromLeft (toggleCellWidth).reduced (3, 3);
-    auto autoGainValueArea = toggleRow.removeFromRight (toggleCellWidth).reduced (3, 3);
-    auto limiterArea = toggleRow.reduced (3, 3);
-    autoGainButton.setBounds (autoGainArea);
-    limiterButton.setBounds (limiterArea);
-    autoGainValueLabel.setBounds (autoGainValueArea);
+    placeFKnob (0, cutoffSlider, cutoffLabel);
+    placeFKnob (1, resonanceSlider, resonanceLabel);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Editor — Timer / State
+// ═══════════════════════════════════════════════════════════════════════════════
 
 void NeonScopeAudioProcessorEditor::timerCallback()
 {
@@ -751,85 +639,69 @@ void NeonScopeAudioProcessorEditor::timerCallback()
 
 void NeonScopeAudioProcessorEditor::updateVisualState()
 {
-    bandCache = processor.getBands();
-    leftLevel = processor.getLeftLevel();
-    rightLevel = processor.getRightLevel();
-    leftPeakDb = processor.getLeftPeakDb();
-    rightPeakDb = processor.getRightPeakDb();
-    leftRmsDb = processor.getLeftRmsDb();
-    rightRmsDb = processor.getRightRmsDb();
+    bandCache        = processor.getBands();
+    leftLevel        = processor.getLeftLevel();
+    rightLevel       = processor.getRightLevel();
+    leftPeakDb       = processor.getLeftPeakDb();
+    rightPeakDb      = processor.getRightPeakDb();
+    leftRmsDb        = processor.getLeftRmsDb();
+    rightRmsDb       = processor.getRightRmsDb();
     correlationValue = processor.getCorrelationValue();
-    widthValue = processor.getWidthValue();
-    autoGainDb = processor.getAutoGainDb();
+    widthValue       = processor.getWidthValue();
+    autoGainDb       = processor.getAutoGainDb();
     limiterReduction = processor.getLimiterReductionDb();
-    globalRmsPulse = processor.getGlobalRmsLevel();
+    globalRmsPulse   = processor.getGlobalRmsLevel();
 
-    constexpr int peakHoldFrames = 18;
-    auto normalisePeak = [] (float db)
+    // Peak hold (~300ms at 60fps)
+    auto updateHold = [] (float db, float& hold, int& timer)
     {
-        return juce::jlimit (0.0f, 1.0f, juce::jmap (db, meterDbFloor, peakDbCeiling, 0.0f, 1.0f));
+        const float incoming = juce::jlimit (0.0f, 1.0f,
+            juce::jmap (db, meterDbFloor, peakDbCeiling, 0.0f, 1.0f));
+        if (incoming >= hold) { hold = incoming; timer = 18; return; }
+        if (timer > 0) { --timer; return; }
+        hold = juce::jmax (0.0f, hold - 0.01f);
     };
-
-    auto updateHold = [normalisePeak, peakHoldFrames] (float db, float& holdValue, int& timer)
-    {
-        const float incoming = normalisePeak (db);
-        if (incoming >= holdValue)
-        {
-            holdValue = incoming;
-            timer = peakHoldFrames;
-            return;
-        }
-
-        if (timer > 0)
-        {
-            --timer;
-            return;
-        }
-
-        holdValue = juce::jmax (0.0f, holdValue - 0.01f);
-    };
-
     updateHold (leftPeakDb, leftPeakHold, leftPeakHoldTimer);
     updateHold (rightPeakDb, rightPeakHold, rightPeakHoldTimer);
 
-    const float flashTarget = limiterReduction < -0.1f ? juce::jlimit (0.0f, 1.0f, -limiterReduction / 6.0f) : 0.0f;
+    // Limiter flash
+    const float flashTarget = limiterReduction < -0.1f
+        ? juce::jlimit (0.0f, 1.0f, -limiterReduction / 6.0f) : 0.0f;
     limiterFlash = limiterFlash * 0.6f + flashTarget * 0.4f;
+
     autoGainValueLabel.setText ("AG: " + formatDb (autoGainDb), juce::dontSendNotification);
 
+    // Mode-driven enable/disable
     const auto* modeParam = processor.getValueTreeState().getRawParameterValue ("mode");
-    const int modeValue = modeParam != nullptr ? juce::roundToInt (modeParam->load()) : 0;
-    const bool processingActive = modeValue != 0;
-    const bool filterActive = modeValue == 1 || modeValue == 3;
-    const bool distortionActive = modeValue == 2 || modeValue == 3;
+    const int modeVal = modeParam ? juce::roundToInt (modeParam->load()) : 0;
+    const bool processing = modeVal != 0;
+    const bool filterOn   = modeVal == 1 || modeVal == 3;
+    const bool distOn     = modeVal == 2 || modeVal == 3;
 
-    auto setControlState = [] (juce::Component& comp, bool active)
+    auto setActive = [] (juce::Component& c, bool on)
     {
-        comp.setEnabled (active);
-        comp.setAlpha (active ? 1.0f : 0.4f);
+        c.setEnabled (on);
+        c.setAlpha (on ? 1.0f : 0.35f);
+    };
+    auto setKnob = [] (juce::Slider& s, juce::Label& l, bool on)
+    {
+        s.setEnabled (on); l.setEnabled (on);
+        s.setAlpha (on ? 1.0f : 0.3f);
+        l.setAlpha (on ? 1.0f : 0.3f);
     };
 
-    auto setKnobState = [] (juce::Slider& slider, juce::Label& label, bool active)
-    {
-        slider.setEnabled (active);
-        label.setEnabled (active);
-        const float alpha = active ? 1.0f : 0.35f;
-        slider.setAlpha (alpha);
-        label.setAlpha (alpha);
-    };
+    setActive (filterTypeBox, filterOn);
+    setKnob (cutoffSlider, cutoffLabel, filterOn);
+    setKnob (resonanceSlider, resonanceLabel, filterOn);
+    setKnob (driveSlider, driveLabel, distOn);
+    setActive (satModeBox, distOn);
+    setActive (oversamplingBox, distOn);
+    setKnob (mixSlider, mixLabel, distOn);
+    setKnob (outputSlider, outputLabel, processing);
+    setKnob (sensitivitySlider, sensitivityLabel, true);
 
-    setControlState (filterTypeBox, filterActive);
-    setKnobState (cutoffSlider, cutoffLabel, filterActive);
-    setKnobState (resonanceSlider, resonanceLabel, filterActive);
-
-    setKnobState (driveSlider, driveLabel, distortionActive);
-    setControlState (satModeBox, distortionActive);
-    setControlState (oversamplingBox, distortionActive);
-    setKnobState (mixSlider, mixLabel, distortionActive);
-    setKnobState (outputSlider, outputLabel, processingActive);
-    setKnobState (sensitivitySlider, sensitivityLabel, true);
-
-    autoGainButton.setAlpha (distortionActive ? 1.0f : 0.5f);
-    limiterButton.setAlpha (processingActive ? 1.0f : 0.7f);
-    bandListenButton.setAlpha (filterActive ? 1.0f : 0.4f);
-    autoGainValueLabel.setAlpha (distortionActive ? 1.0f : 0.5f);
+    autoGainButton.setAlpha (distOn ? 1.0f : 0.4f);
+    limiterButton.setAlpha (processing ? 1.0f : 0.6f);
+    bandListenButton.setAlpha (filterOn ? 1.0f : 0.35f);
+    autoGainValueLabel.setAlpha (distOn ? 1.0f : 0.4f);
 }

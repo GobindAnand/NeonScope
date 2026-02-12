@@ -52,3 +52,12 @@ target_compile_definitions(NeonScope
         JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
+if (WIN32)
+    add_custom_command(TARGET NeonScope_VST3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E remove_directory
+        "C:/Program Files/Common Files/VST3/NeonScope.vst3"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "$<TARGET_FILE_DIR:NeonScope_VST3>/NeonScope.vst3"
+        "C:/Program Files/Common Files/VST3/NeonScope.vst3")
+endif()
+
